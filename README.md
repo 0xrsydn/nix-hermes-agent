@@ -1,10 +1,12 @@
 # nix-hermes
 
-Nix package and NixOS module for [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research.
+Declarative Nix package and NixOS module for [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research.
+
+Everything is configured in Nix. Config, documents, secrets, service — one `nixos-rebuild switch` and it's live.
 
 ## Quick Start
 
-### Flake usage
+### 1. Add to your flake
 
 ```nix
 {
@@ -14,60 +16,196 @@ Nix package and NixOS module for [Hermes Agent](https://github.com/NousResearch/
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
       modules = [
         nix-hermes.nixosModules.hermes-agent
-        {
-          services.hermes-agent = {
-            enable = true;
-            environmentFile = "/run/secrets/hermes-env";  # API keys
-          };
-        }
+        ./hermes.nix  # your config (see below)
       ];
     };
   };
 }
 ```
 
-### Just the package
+### 2. Configure declaratively
 
-```bash
-nix run github:0xrsydn/nix-hermes -- --help
+```nix
+# hermes.nix
+{ ... }:
+{
+  services.hermes-agent = {
+    enable = true;
+
+    # ── Declarative config (renders to cli-config.yaml) ──
+    config = {
+      model = {
+        default = "anthropic/claude-opus-4.6";
+        provider = "openrouter";
+      };
+      terminal = {
+        backend = "local";
+        timeout = 180;
+        lifetime_seconds = 300;
+      };
+      agent = {
+        max_turns = 60;
+        reasoning_effort = "medium";
+      };
+      memory = {
+        memory_enabled = true;
+        user_profile_enabled = true;
+        memory_char_limit = 2200;
+        nudge_interval = 10;
+      };
+      compression = {
+        enabled = true;
+        threshold = 0.85;
+        summary_model = "google/gemini-3-flash-preview";
+      };
+      toolsets = [ "all" ];
+    };
+
+    # ── Secrets (not in Nix store) ──
+    environmentFiles = [
+      "/run/secrets/hermes-env"  # ANTHROPIC_API_KEY, TELEGRAM_TOKEN, etc.
+    ];
+
+    # ── Non-secret env vars ──
+    environment = {
+      LLM_MODEL = "anthropic/claude-opus-4.6";
+    };
+
+    # ── Workspace documents (inline or file paths) ──
+    documents = {
+      "SOUL.md" = ''
+        # SOUL.md
+        You are a sharp, pragmatic AI assistant.
+      '';
+      "AGENTS.md" = ''
+        # AGENTS.md
+        Read SOUL.md first. Then help the user.
+      '';
+      "USER.md" = ''
+        # USER.md
+        Name: Your Human
+      '';
+      # Or reference a file:
+      # "SOUL.md" = ./documents/SOUL.md;
+    };
+
+    # ── MCP servers ──
+    mcpServers = {
+      context7 = {
+        command = "npx";
+        args = [ "-y" "@upstash/context7-mcp@latest" ];
+      };
+    };
+
+    # ── Extra tools on PATH ──
+    extraPackages = with pkgs; [ jq ripgrep curl ];
+  };
+}
 ```
 
-### NixOS module options
+### 3. Create secrets file
+
+```bash
+# /run/secrets/hermes-env (or wherever you manage secrets)
+OPENROUTER_API_KEY=sk-or-...
+ANTHROPIC_API_KEY=sk-ant-...
+TELEGRAM_TOKEN=123456:ABC...
+TELEGRAM_ALLOWED_USERS=your_user_id
+```
+
+### 4. Deploy
+
+```bash
+nixos-rebuild switch
+systemctl status hermes-agent
+journalctl -u hermes-agent -f
+```
+
+## Architecture
+
+```
+You (Telegram/Discord/WhatsApp/Slack) → Gateway → Tools → Machine does things
+```
+
+### How it works
+
+1. `services.hermes-agent.config` attrset is deep-merged and rendered to `cli-config.yaml`
+2. Documents are installed into the workspace directory
+3. Secrets stay outside the Nix store via `environmentFiles`
+4. systemd service runs `hermes gateway` with everything wired up
+
+### Directory layout
+
+```
+/var/lib/hermes/              # stateDir
+├── .hermes/                  # Hermes home (HERMES_HOME)
+│   ├── cli-config.yaml       # Generated from config option
+│   ├── .env                  # Secrets (from environmentFiles)
+│   ├── memory/               # Agent memory (runtime)
+│   ├── skills/               # Skills (runtime)
+│   └── logs/                 # Session logs
+├── workspace/                # workingDirectory
+│   ├── SOUL.md               # From documents option
+│   ├── AGENTS.md
+│   └── USER.md
+└── logs/
+    └── gateway.log           # Service log
+```
+
+## Module Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enable` | bool | `false` | Enable the Hermes Agent gateway service |
+| `enable` | bool | `false` | Enable Hermes Agent gateway |
+| `config` | attrset | `{}` | Declarative config (→ cli-config.yaml) |
+| `configFile` | path | `null` | Use existing config file (overrides `config`) |
+| `documents` | attrset | `{}` | Workspace files (string or path values) |
+| `environmentFiles` | list | `[]` | Secret env files (systemd EnvironmentFile) |
+| `environment` | attrset | `{}` | Non-secret env vars |
+| `mcpServers` | attrset | `{}` | MCP server configs (merged into config) |
 | `user` | string | `"hermes"` | Service user |
 | `group` | string | `"hermes"` | Service group |
-| `homeDir` | path | `/var/lib/hermes` | State directory |
-| `workDir` | path | `${homeDir}/workspace` | Working directory |
-| `environmentFile` | path | `null` | Secrets file (API keys, tokens) |
-| `extraEnvironment` | attrs | `{}` | Extra env vars |
-| `extraArgs` | list | `[]` | Extra CLI args for `hermes gateway` |
+| `stateDir` | path | `/var/lib/hermes` | State directory |
+| `workingDirectory` | path | `${stateDir}/workspace` | Working directory |
 | `extraPackages` | list | `[]` | Extra packages on PATH |
+| `extraArgs` | list | `[]` | Extra `hermes gateway` args |
+| `logPath` | path | `${stateDir}/logs/gateway.log` | Log file |
+| `restart` | string | `"always"` | systemd Restart policy |
+| `restartSec` | int | `5` | Restart delay |
 
-### Environment file example
+## Config Reference
+
+The `config` attrset maps directly to Hermes' `cli-config.yaml`. Key sections:
+
+| Section | Purpose |
+|---------|---------|
+| `model` | Default model, provider, base_url |
+| `terminal` | Backend (local/ssh/docker/modal), cwd, timeout |
+| `agent` | max_turns, verbose, reasoning_effort, personalities |
+| `memory` | memory_enabled, user_profile_enabled, char limits |
+| `compression` | Context compression settings |
+| `session_reset` | Auto-reset policy for messaging |
+| `skills` | Skill creation nudge settings |
+| `toolsets` | Which tool groups to enable |
+| `mcp_servers` | MCP server connections |
+| `delegation` | Subagent settings |
+| `browser` | Browser tool settings |
+| `stt` | Voice transcription config |
+| `display` | UI/skin settings |
+
+See the [full config reference](https://raw.githubusercontent.com/NousResearch/hermes-agent/main/cli-config.yaml.example).
+
+## Just the Package
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...
-OPENROUTER_API_KEY=sk-or-...
-TELEGRAM_TOKEN=123456:ABC...
-OPENAI_API_KEY=sk-...
-```
+# Run directly
+nix run github:0xrsydn/nix-hermes -- --help
 
-## What's included
+# In a dev shell
+nix develop github:0xrsydn/nix-hermes
 
-- **`hermes`** — Interactive CLI
-- **`hermes-agent`** — Agent runner
-- **`hermes-acp`** — ACP adapter
-- **NixOS module** — systemd service for gateway mode
-- Runtime deps wrapped: Node.js 22, ripgrep, ffmpeg, git
-
-## Development
-
-```bash
-nix develop  # Enter dev shell with hermes on PATH
-nix build    # Build the package
+# Use the overlay
+nixpkgs.overlays = [ nix-hermes.overlays.default ];
 ```
 
 ## License
