@@ -1,4 +1,4 @@
-# nix-hermes
+# nix-hermes-agent
 
 Declarative Nix package and NixOS module for [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research.
 
@@ -10,7 +10,7 @@ Everything is configured in Nix. Config, documents, secrets, service — one `ni
 
 ```nix
 {
-  inputs.nix-hermes.url = "github:0xrsydn/nix-hermes";
+  inputs.nix-hermes.url = "github:0xrsydn/nix-hermes-agent";
 
   outputs = { self, nixpkgs, nix-hermes, ... }: {
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
@@ -249,10 +249,10 @@ See the [full config reference](https://raw.githubusercontent.com/NousResearch/h
 
 ```bash
 # Run directly
-nix run github:0xrsydn/nix-hermes -- --help
+nix run github:0xrsydn/nix-hermes-agent -- --help
 
 # In a dev shell
-nix develop github:0xrsydn/nix-hermes
+nix develop github:0xrsydn/nix-hermes-agent
 
 # Use the overlay
 nixpkgs.overlays = [ nix-hermes.overlays.default ];
