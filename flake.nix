@@ -17,6 +17,11 @@
           default = self.packages.${system}.hermes-agent;
         };
 
+        checks = import ./checks.nix {
+          inherit pkgs;
+          hermes-agent = self.packages.${system}.hermes-agent;
+        };
+
         devShells.default = pkgs.mkShell {
           packages = [ self.packages.${system}.hermes-agent ];
         };
