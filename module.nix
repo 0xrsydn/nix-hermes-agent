@@ -162,6 +162,16 @@ in
       '';
     };
 
+    authFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      description = ''
+        Path to an auth.json file containing OAuth credentials (Nous Portal, Codex, Anthropic OAuth).
+        Use with sops-nix to manage OAuth tokens declaratively.
+        If null, auth.json is managed at runtime via `hermes model`.
+      '';
+    };
+
     # ── Documents (SOUL.md, AGENTS.md, etc.) ─────────────────────────────
     documents = mkOption {
       type = types.attrsOf (types.either types.str types.path);
@@ -271,6 +281,11 @@ in
     system.activationScripts."hermes-agent-setup" = lib.stringAfter [ "users" ] ''
       # Link config file
       install -o ${cfg.user} -g ${cfg.group} -m 0640 -D ${configFile} ${cfg.stateDir}/.hermes/cli-config.yaml
+
+      # Link auth file if provided
+      ${lib.optionalString (cfg.authFile != null) ''
+        install -o ${cfg.user} -g ${cfg.group} -m 0600 ${cfg.authFile} ${cfg.stateDir}/.hermes/auth.json
+      ''}
 
       # Link documents into workspace
       ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: _value: ''

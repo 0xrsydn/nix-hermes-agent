@@ -103,6 +103,55 @@ Everything is configured in Nix. Config, documents, secrets, service — one `ni
 }
 ```
 
+### Secrets Management
+
+#### Plain files approach
+
+```nix
+services.hermes-agent = {
+  environmentFiles = [ "/run/secrets/hermes-env" ];
+  authFile = "/run/secrets/hermes-auth.json";  # optional, for OAuth tokens
+};
+```
+
+#### sops-nix approach
+
+```nix
+sops.secrets."hermes/env" = {
+  sopsFile = ./secrets/hermes.yaml;
+  owner = "hermes";
+  group = "hermes";
+};
+
+sops.secrets."hermes/auth" = {
+  sopsFile = ./secrets/hermes.yaml;
+  owner = "hermes";
+  group = "hermes";
+};
+
+services.hermes-agent = {
+  enable = true;
+  environmentFiles = [ config.sops.secrets."hermes/env".path ];
+  authFile = config.sops.secrets."hermes/auth".path;
+  config.model = {
+    default = "anthropic/claude-opus-4.6";
+    provider = "openrouter";
+  };
+};
+```
+
+#### Example secrets file structure
+
+```yaml
+hermes/env: |
+    OPENROUTER_API_KEY=sk-or-...
+    ANTHROPIC_API_KEY=sk-ant-...
+    TELEGRAM_TOKEN=123456:ABC...
+    GLM_API_KEY=...
+hermes/auth: |
+    {"nous": {"token": "...", "refresh": "..."}, "codex": {"token": "..."}}
+```
+
 ### 3. Create secrets file
 
 ```bash
@@ -162,6 +211,7 @@ You (Telegram/Discord/WhatsApp/Slack) → Gateway → Tools → Machine does thi
 | `documents` | attrset | `{}` | Workspace files (string or path values) |
 | `environmentFiles` | list | `[]` | Secret env files (systemd EnvironmentFile) |
 | `environment` | attrset | `{}` | Non-secret env vars |
+| `authFile` | path | `null` | OAuth credentials file (auth.json) |
 | `mcpServers` | attrset | `{}` | MCP server configs (merged into config) |
 | `user` | string | `"hermes"` | Service user |
 | `group` | string | `"hermes"` | Service group |
