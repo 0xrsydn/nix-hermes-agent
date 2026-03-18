@@ -23,10 +23,16 @@
           default = self.packages.${system}.hermes-agent;
         };
 
-        checks = import ./checks.nix {
-          inherit pkgs;
-          inherit (self.packages.${system}) hermes-agent;
-        };
+        checks =
+          (import ./checks.nix {
+            inherit pkgs;
+            inherit (self.packages.${system}) hermes-agent;
+          })
+          // {
+            skills-coexistence = import ./tests/skills-coexistence.nix {
+              inherit self nixpkgs system;
+            };
+          };
 
         devShells.default = pkgs.mkShell {
           packages = [ self.packages.${system}.hermes-agent ];

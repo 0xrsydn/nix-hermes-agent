@@ -95,4 +95,21 @@
     mkdir -p $out
     echo "ok" > $out/result
   '';
+
+  # Verify upstream source exposed to the module contains skills trees
+  skills-source-layout = pkgs.runCommand "hermes-skills-source-layout" { } ''
+    set -e
+
+    SRC=${hermes-agent.upstreamSrc}
+
+    echo "=== Checking upstream skills trees ==="
+    test -d "$SRC/skills" || (echo "FAIL: missing skills/ in upstream source"; exit 1)
+    test -d "$SRC/optional-skills" || (echo "FAIL: missing optional-skills/ in upstream source"; exit 1)
+    find "$SRC/skills" -name SKILL.md -print -quit | grep -q . || (echo "FAIL: no bundled SKILL.md found"; exit 1)
+    find "$SRC/optional-skills" -name SKILL.md -print -quit | grep -q . || (echo "FAIL: no optional SKILL.md found"; exit 1)
+    echo "PASS: upstream skills source layout present"
+
+    mkdir -p $out
+    echo "ok" > $out/result
+  '';
 }
