@@ -1,13 +1,14 @@
-{ lib
-, python312Packages
-, python312
-, fetchFromGitHub
-, fetchPypi
-, makeWrapper
-, nodejs_22
-, ripgrep
-, ffmpeg
-, git
+{
+  lib,
+  python312Packages,
+  python312,
+  fetchFromGitHub,
+  fetchPypi,
+  makeWrapper,
+  nodejs_22,
+  ripgrep,
+  ffmpeg,
+  git,
 }:
 
 let
@@ -25,7 +26,10 @@ let
       inherit version;
       hash = "sha256-nhwH0KYbRSqP+0jBmd5fJUPXVG8SMPYxI3BEMSfF6Tc=";
     };
-    build-system = with pythonPackages; [ setuptools setuptools-scm ];
+    build-system = with pythonPackages; [
+      setuptools
+      setuptools-scm
+    ];
     dependencies = with pythonPackages; [
       httpx
       httpx-sse
@@ -45,7 +49,10 @@ let
       inherit version;
       hash = "sha256-b97r+UVOYrxSPVeIjlA1nme6r9sh9oYh+cFOCNwAYjo=";
     };
-    build-system = with pythonPackages; [ setuptools wheel ];
+    build-system = with pythonPackages; [
+      setuptools
+      wheel
+    ];
     dependencies = with pythonPackages; [
       httpx
       pydantic
@@ -166,7 +173,14 @@ pythonPackages.buildPythonApplication {
     for bin in $out/bin/hermes $out/bin/hermes-agent $out/bin/hermes-acp; do
       if [ -f "$bin" ]; then
         wrapProgram "$bin" \
-          --prefix PATH : ${lib.makeBinPath [ nodejs_22 ripgrep ffmpeg git ]}
+          --prefix PATH : ${
+            lib.makeBinPath [
+              nodejs_22
+              ripgrep
+              ffmpeg
+              git
+            ]
+          }
       fi
     done
   '';

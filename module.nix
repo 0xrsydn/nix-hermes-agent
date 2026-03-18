@@ -1,9 +1,14 @@
 self:
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.services.hermes-agent;
-  hermes-agent = self.packages.${pkgs.system}.hermes-agent;
+  inherit (self.packages.${pkgs.system}) hermes-agent;
 
   # Deep-merge config type (same pattern as nix-openclaw)
   deepConfigType = lib.types.mkOptionType {
@@ -20,20 +25,21 @@ let
   configFile = if cfg.configFile != null then cfg.configFile else generatedConfigFile;
 
   # Generate .env file from environment attrset (non-secret env vars)
-  envFileContent = lib.concatStringsSep "\n" (
-    lib.mapAttrsToList (k: v: "${k}=${v}") cfg.environment
-  );
+  envFileContent = lib.concatStringsSep "\n" (lib.mapAttrsToList (k: v: "${k}=${v}") cfg.environment);
   generatedEnvFile = pkgs.writeText "hermes-env" envFileContent;
 
   # Document files → symlinked into workspace
   documentDerivation = pkgs.runCommand "hermes-documents" { } (
     ''
       mkdir -p $out
-    '' + lib.concatStringsSep "\n" (
-      lib.mapAttrsToList (name: value:
-        if builtins.isPath value || lib.isStorePath value
-        then "cp ${value} $out/${name}"
-        else "cat > $out/${name} <<'HERMES_DOC_EOF'\n${value}\nHERMES_DOC_EOF"
+    ''
+    + lib.concatStringsSep "\n" (
+      lib.mapAttrsToList (
+        name: value:
+        if builtins.isPath value || lib.isStorePath value then
+          "cp ${value} $out/${name}"
+        else
+          "cat > $out/${name} <<'HERMES_DOC_EOF'\n${value}\nHERMES_DOC_EOF"
       ) cfg.documents
     )
   );
@@ -254,14 +260,28 @@ in
 
     # ── MCP servers ──────────────────────────────────────────────────────
     mcpServers = mkOption {
-      type = types.attrsOf (types.submodule {
-        options = {
-          command = mkOption { type = types.str; description = "MCP server command."; };
-          args = mkOption { type = types.listOf types.str; default = [ ]; };
-          env = mkOption { type = types.attrsOf types.str; default = { }; };
-          timeout = mkOption { type = types.nullOr types.int; default = null; };
-        };
-      });
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            command = mkOption {
+              type = types.str;
+              description = "MCP server command.";
+            };
+            args = mkOption {
+              type = types.listOf types.str;
+              default = [ ];
+            };
+            env = mkOption {
+              type = types.attrsOf types.str;
+              default = { };
+            };
+            timeout = mkOption {
+              type = types.nullOr types.int;
+              default = null;
+            };
+          };
+        }
+      );
       default = { };
       description = "MCP server configurations (merged into config.mcp_servers).";
     };
@@ -270,8 +290,11 @@ in
   config = lib.mkIf cfg.enable {
     # ── Merge MCP servers into config ────────────────────────────────────
     services.hermes-agent.config = lib.mkIf (cfg.mcpServers != { }) {
-      mcp_servers = lib.mapAttrs (_name: srv:
-        { inherit (srv) command args; }
+      mcp_servers = lib.mapAttrs (
+        _name: srv:
+        {
+          inherit (srv) command args;
+        }
         // lib.optionalAttrs (srv.env != { }) { inherit (srv) env; }
         // lib.optionalAttrs (srv.timeout != null) { inherit (srv) timeout; }
       ) cfg.mcpServers;
@@ -281,7 +304,7 @@ in
     users.groups.${cfg.group} = lib.mkIf cfg.createUser { };
     users.users.${cfg.user} = lib.mkIf cfg.createUser {
       isSystemUser = true;
-      group = cfg.group;
+      inherit (cfg) group;
       home = cfg.stateDir;
       createHome = true;
       shell = pkgs.bashInteractive;
@@ -302,19 +325,26 @@ in
 
       # Seed auth file if provided (only if not already present, unless force overwrite)
       ${lib.optionalString (cfg.authFile != null) ''
-        ${if cfg.authFileForceOverwrite then ''
-          install -o ${cfg.user} -g ${cfg.group} -m 0600 ${cfg.authFile} ${cfg.stateDir}/.hermes/auth.json
-        '' else ''
-          if [ ! -f ${cfg.stateDir}/.hermes/auth.json ]; then
-            install -o ${cfg.user} -g ${cfg.group} -m 0600 ${cfg.authFile} ${cfg.stateDir}/.hermes/auth.json
-          fi
-        ''}
+        ${
+          if cfg.authFileForceOverwrite then
+            ''
+              install -o ${cfg.user} -g ${cfg.group} -m 0600 ${cfg.authFile} ${cfg.stateDir}/.hermes/auth.json
+            ''
+          else
+            ''
+              if [ ! -f ${cfg.stateDir}/.hermes/auth.json ]; then
+                install -o ${cfg.user} -g ${cfg.group} -m 0600 ${cfg.authFile} ${cfg.stateDir}/.hermes/auth.json
+              fi
+            ''
+        }
       ''}
 
       # Link documents into workspace
-      ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: _value: ''
-        install -o ${cfg.user} -g ${cfg.group} -m 0644 ${documentDerivation}/${name} ${cfg.workingDirectory}/${name}
-      '') cfg.documents)}
+      ${lib.concatStringsSep "\n" (
+        lib.mapAttrsToList (name: _value: ''
+          install -o ${cfg.user} -g ${cfg.group} -m 0644 ${documentDerivation}/${name} ${cfg.workingDirectory}/${name}
+        '') cfg.documents
+      )}
     '';
 
     # ── systemd service ──────────────────────────────────────────────────
@@ -335,16 +365,19 @@ in
         Group = cfg.group;
         WorkingDirectory = cfg.workingDirectory;
 
-        EnvironmentFile =
-          [ generatedEnvFile ]
-          ++ cfg.environmentFiles;
+        EnvironmentFile = [ generatedEnvFile ] ++ cfg.environmentFiles;
 
         ExecStart =
-          if cfg.execStart != null then cfg.execStart
-          else lib.concatStringsSep " " ([
-            "${cfg.package}/bin/hermes"
-            "gateway"
-          ] ++ cfg.extraArgs);
+          if cfg.execStart != null then
+            cfg.execStart
+          else
+            lib.concatStringsSep " " (
+              [
+                "${cfg.package}/bin/hermes"
+                "gateway"
+              ]
+              ++ cfg.extraArgs
+            );
 
         Restart = cfg.restart;
         RestartSec = cfg.restartSec;
@@ -365,7 +398,8 @@ in
         pkgs.bash
         pkgs.coreutils
         pkgs.git
-      ] ++ cfg.extraPackages;
+      ]
+      ++ cfg.extraPackages;
     };
   };
 }

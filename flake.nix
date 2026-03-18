@@ -6,8 +6,14 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = import nixpkgs { inherit system; };
       in
@@ -19,14 +25,15 @@
 
         checks = import ./checks.nix {
           inherit pkgs;
-          hermes-agent = self.packages.${system}.hermes-agent;
+          inherit (self.packages.${system}) hermes-agent;
         };
 
         devShells.default = pkgs.mkShell {
           packages = [ self.packages.${system}.hermes-agent ];
         };
       }
-    ) // {
+    )
+    // {
       nixosModules = {
         hermes-agent = import ./module.nix self;
         default = self.nixosModules.hermes-agent;
