@@ -215,6 +215,77 @@ You (Telegram/Discord/WhatsApp/Slack) → Gateway → Tools → Machine does thi
     └── gateway.log           # Service log
 ```
 
+## Declarative Skills vs Native Hermes Skills
+
+The `skills` option is designed to **augment Hermes**, not replace Hermes' native skill workflow.
+
+Both approaches compose into the same runtime directory:
+
+- `${stateDir}/.hermes/skills/`
+
+That means you can use both:
+
+- **declarative skills** from Nix
+- **interactive/runtime skills** from `hermes skills install`
+
+### Ownership model
+
+#### Nix-managed
+Skills declared via:
+
+- `services.hermes-agent.skills.bundled`
+- `services.hermes-agent.skills.optional`
+- `services.hermes-agent.skills.custom`
+
+are reconciled by the module and tracked in:
+
+- `.nix-managed-skills.json`
+
+These paths are considered **owned by Nix**.
+
+#### Hermes-managed
+Skills installed later via Hermes CLI, plus hub metadata under:
+
+- `.hermes/skills/.hub/`
+
+are left alone by the module **unless they collide with a Nix-managed path**.
+
+### Collision rule
+
+If a Hermes CLI install and a declarative Nix skill target the same installed path,
+**the declarative Nix version wins on the next activation/rebuild**.
+
+Example:
+
+- Nix declares `creative/blender-mcp`
+- user later installs another `creative/blender-mcp` via Hermes CLI
+
+On the next rebuild, the Nix-declared version is restored.
+
+### Recommended workflow
+
+Use **Hermes CLI** for:
+
+- experimentation
+- hub/community skill discovery
+- temporary installs
+- trying before keeping
+
+Use **Nix declarative skills** for:
+
+- stable/reproducible deployments
+- bundled upstream skills you always want
+- selected optional skills you want pinned to the package revision
+- local custom house skills stored in git
+
+A good pattern is:
+
+1. install/try a skill interactively,
+2. decide it is worth keeping,
+3. promote it into Nix config if you want it reproducible.
+
+This keeps `nix-hermes-agent` useful without interfering with the native Hermes experience.
+
 ## Module Options
 
 | Option | Type | Default | Description |
