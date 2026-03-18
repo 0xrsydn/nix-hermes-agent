@@ -46,6 +46,7 @@ let
     pkgs.runCommand "hermes-managed-skills"
       {
         bundledEnabled = if cfg.skills.bundled.enable then "1" else "0";
+        bundledIncludeJson = builtins.toJSON cfg.skills.bundled.include;
         optionalSkillsJson = builtins.toJSON cfg.skills.optional;
         customSkillsJson = builtins.toJSON customSkillSpecs;
         src = hermesUpstreamSrc;
@@ -64,6 +65,7 @@ let
         out = Path(os.environ["out"])
         src = Path(os.environ["src"])
         bundled_enabled = os.environ["bundledEnabled"] == "1"
+        bundled_include = json.loads(os.environ["bundledIncludeJson"])
         optional_skills = json.loads(os.environ["optionalSkillsJson"])
         custom_skills = json.loads(os.environ["customSkillsJson"])
         managed = []
@@ -97,12 +99,32 @@ let
             if not bundled_root.exists():
                 raise SystemExit(f"bundled skills directory missing: {bundled_root}")
 
+            include_set = set(bundled_include) if bundled_include else None
+
+            # Validate include paths exist
+            if include_set:
+                all_skills = {str(s) for s in skill_dirs_under(bundled_root)}
+                missing = include_set - all_skills
+                if missing:
+                    raise SystemExit(
+                        f"bundled.include references non-existent skills: {', '.join(sorted(missing))}\n"
+                        f"Available: {', '.join(sorted(all_skills))}"
+                    )
+
             for skill_rel in skill_dirs_under(bundled_root):
+                # If include list is set, only install listed skills
+                if include_set and str(skill_rel) not in include_set:
+                    continue
                 copy_tree(bundled_root / skill_rel, out / skill_rel)
                 managed.append(str(skill_rel))
 
+            # Copy DESCRIPTION.md for categories that have at least one included skill
+            included_categories = {Path(s).parts[0] for s in managed} if managed else set()
             for desc in bundled_root.rglob("DESCRIPTION.md"):
                 rel = desc.relative_to(bundled_root)
+                cat = rel.parts[0] if rel.parts else None
+                if include_set and cat and cat not in included_categories:
+                    continue
                 target = out / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(desc, target)
@@ -282,6 +304,23 @@ in
             default = true;
             description = ''
               Install upstream bundled skills declaratively into HERMES_HOME/skills.
+            '';
+          };
+
+          bundled.include = mkOption {
+            type = types.listOf types.str;
+            default = [ ];
+            example = [
+              "autonomous-ai-agents/claude-code"
+              "software-development/code-review"
+              "research/arxiv"
+            ];
+            description = ''
+              When non-empty, only install these specific bundled skills (by relative
+              path under upstream `skills/`). When empty (default), all bundled skills
+              are installed. Has no effect when `bundled.enable` is false.
+
+              Invalid paths cause a build error listing available skills.
             '';
           };
 
