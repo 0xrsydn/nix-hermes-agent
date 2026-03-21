@@ -37,7 +37,7 @@ let
   customSkillSpecs = lib.mapAttrsToList (name: value: {
     inherit name;
     inherit (value) category;
-    source = toString value.source;
+    source = "${value.source}";
   }) cfg.skills.custom;
 
   skillsManaged = cfg.skills.bundled.enable || cfg.skills.optional != [ ] || cfg.skills.custom != { };
