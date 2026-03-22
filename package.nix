@@ -9,6 +9,9 @@
   ripgrep,
   ffmpeg,
   git,
+  pinVersion ? "0.3.0",
+  pinRev ? "6ebb816e5611aaf1f3f7187ba8b10e985e899c75",
+  pinHash ? "sha256-JGjusff/jGjvCCdUtl9IErBTGmpIq6BVA5Gj8mwqVYg=",
 }:
 
 let
@@ -87,14 +90,14 @@ let
     pythonImportsCheck = [ "acp" ];
   };
 
-  version = "0.3.0";
-  rev = "6ebb816e5611aaf1f3f7187ba8b10e985e899c75";
+  version = pinVersion;
+  rev = pinRev;
 
   src = fetchFromGitHub {
     owner = "NousResearch";
     repo = "hermes-agent";
     inherit rev;
-    hash = "sha256-JGjusff/jGjvCCdUtl9IErBTGmpIq6BVA5Gj8mwqVYg=";
+    hash = pinHash;
     fetchSubmodules = true;
   };
 
