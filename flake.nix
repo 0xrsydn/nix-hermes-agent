@@ -16,10 +16,12 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
+        lib = pkgs.lib;
       in
       {
         packages = {
           hermes-agent = pkgs.callPackage ./package.nix { };
+          hermes-agent-nightly = import ./nightly.nix { inherit pkgs; };
           default = self.packages.${system}.hermes-agent;
         };
 
@@ -28,6 +30,11 @@
             inherit pkgs;
             inherit (self.packages.${system}) hermes-agent;
           })
+          // (lib.mapAttrs' (name: value: lib.nameValuePair "nightly-${name}" value)
+               (import ./checks.nix {
+                 inherit pkgs;
+                 hermes-agent = self.packages.${system}.hermes-agent-nightly;
+               }))
           // {
             skills-coexistence = import ./tests/skills-coexistence.nix {
               inherit self nixpkgs system;
@@ -47,6 +54,7 @@
 
       overlays.default = final: prev: {
         hermes-agent = final.callPackage ./package.nix { };
+        hermes-agent-nightly = import ./nightly.nix { pkgs = final; };
       };
     };
 }
