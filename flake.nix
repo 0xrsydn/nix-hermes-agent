@@ -16,7 +16,7 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
-        lib = pkgs.lib;
+        inherit (pkgs) lib;
       in
       {
         packages = {
