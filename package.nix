@@ -30,6 +30,26 @@ let
         # cherrypy test_logging tests crash in macOS Nix sandbox (signal 0)
         doCheck = false;
       });
+      tenacity = prev.tenacity.overridePythonAttrs (_old: rec {
+        # hermes-agent >=0.4.0 requires tenacity >=9.1.4; nixpkgs has 9.1.2
+        version = "9.1.4";
+        src = fetchPypi {
+          pname = "tenacity";
+          inherit version;
+          hash = "sha256-rbMdTCY/K9BBCBqzO0mDCaV8d/ms8ttlqt8ImBec+To=";
+        };
+        patches = [ ];
+      });
+      firecrawl-py = prev.firecrawl-py.overridePythonAttrs (_old: rec {
+        # hermes-agent >=0.4.0 requires firecrawl-py >=4.16.0; nixpkgs builds from GitHub
+        version = "4.16.0";
+        src = fetchPypi {
+          pname = "firecrawl_py";
+          inherit version;
+          hash = "sha256-X21v3rNARCnIUfxaTpkPZlmp6ccld7Q0SArRYWuwM3Q=";
+        };
+        sourceRoot = null;
+      });
     };
   };
   pythonPackages = python.pkgs;
@@ -38,12 +58,12 @@ let
 
   fal-client = pythonPackages.buildPythonPackage rec {
     pname = "fal-client";
-    version = "0.4.0";
+    version = "0.13.1";
     pyproject = true;
     src = fetchPypi {
       pname = "fal_client";
       inherit version;
-      hash = "sha256-Affi7U2RHF4nWdrD7lW1IxA6ZEv3hBLDEYq5LaApMKw=";
+      hash = "sha256-nhwH0KYbRSqP+0jBmd5fJUPXVG8SMPYxI3BEMSfF6Tc=";
     };
     build-system = with pythonPackages; [
       setuptools
