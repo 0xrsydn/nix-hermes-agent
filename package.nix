@@ -30,6 +30,10 @@ let
         # cherrypy test_logging tests crash in macOS Nix sandbox (signal 0)
         doCheck = false;
       });
+      apscheduler = prev.apscheduler.overridePythonAttrs (_old: {
+        # apscheduler processpool tests fail in the nix sandbox (signal handling)
+        doCheck = false;
+      });
       tenacity = prev.tenacity.overridePythonAttrs (_old: rec {
         # hermes-agent >=0.4.0 requires tenacity >=9.1.4; nixpkgs has 9.1.2
         version = "9.1.4";
