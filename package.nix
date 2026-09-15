@@ -10,9 +10,9 @@
   ripgrep,
   ffmpeg,
   git,
-  pinVersion ? "0.21.1",
-  pinRev ? "2237be355906fbe6065ce1815711eee52b2d646e",
-  pinHash ? "sha256-2NuDx7rjsoBDO4I/iMoZsJ+5IaAbiNrDc+sFuzOe08w=",
+  pinVersion ? "0.21.3",
+  pinRev ? "345cd2b057a452236de401d3534b8502a7465e8d",
+  pinHash ? "sha256-D1guaUPuOOWZCt8el9+xe4qGlMyd9YR9Aq2adVfqznQ=",
 }:
 
 let
@@ -49,6 +49,19 @@ let
           hash = "sha256-rbMdTCY/K9BBCBqzO0mDCaV8d/ms8ttlqt8ImBec+To=";
         };
         patches = [ ];
+      });
+      pillow-heif = prev.pillow-heif.overridePythonAttrs (_old: rec {
+        # hermes-agent >=0.21.3 requires pillow-heif>=1.4.0,<2 (HEIF/HEIC/AVIF
+        # decode for the vision tools); nixpkgs has 1.2.0. 1.4.0 is the newest
+        # release that still accepts nixpkgs' libheif (1.20.2) — 1.5.0 needs
+        # libheif >=1.23.1. Upstream test suite passes against system libheif.
+        version = "1.4.0";
+        src = fetchFromGitHub {
+          owner = "bigcat88";
+          repo = "pillow_heif";
+          tag = "v${version}";
+          hash = "sha256-EaislmA4v2qKCDQ87I85Pn8IlS4VJWyNXkITipKSBC8=";
+        };
       });
       firecrawl-py = prev.firecrawl-py.overridePythonAttrs (_old: rec {
         # hermes-agent >=0.4.0 requires firecrawl-py >=4.16.0; nixpkgs builds from GitHub
@@ -252,6 +265,8 @@ pythonPackages.buildPythonApplication {
     pyjwt
     cryptography
     pillow
+    # Vision — HEIF/HEIC/AVIF decode for iPhone photos (upstream >=0.21.3)
+    pillow-heif
     # Messaging
     python-telegram-bot
     discordpy
