@@ -247,6 +247,10 @@ pythonPackages.buildPythonApplication {
     psutil
     pathspec
     fastapi
+    # uvicorn log/hot-reload components, inlined as core deps in upstream >=0.21.4
+    # (uvloop stays optional via the [uvloop] extra)
+    httptools
+    watchfiles
     # Tools
     firecrawl-py
     fal-client
