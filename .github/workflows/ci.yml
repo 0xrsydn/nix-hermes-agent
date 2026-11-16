@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Candidate PRs opened by GITHUB_TOKEN dispatch this run themselves.
+  workflow_dispatch: {}
 
 permissions:
   contents: read

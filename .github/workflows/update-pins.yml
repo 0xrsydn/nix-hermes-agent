@@ -10,7 +10,11 @@ concurrency:
   group: hermes-agent-stable-candidate
   cancel-in-progress: true
 
+# GITHUB_TOKEN opens the candidate PR (repository setting: Actions may create
+# pull requests). Its PRs start no workflows, so the job dispatches CI itself;
+# nixbot builds the PR's flake checks either way.
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -26,15 +30,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v13
 
-      - name: Require PR automation token
-        env:
-          HERMES_UPDATE_TOKEN: ${{ secrets.HERMES_UPDATE_TOKEN }}
-        run: |
-          if [[ -z "$HERMES_UPDATE_TOKEN" ]]; then
-            echo "Configure HERMES_UPDATE_TOKEN so candidate PRs receive required CI checks." >&2
-            exit 1
-          fi
-
       - name: Run updater
         id: update
         env:
@@ -44,15 +39,22 @@ jobs:
           scripts/update-pins.sh
 
       - name: Open or update candidate PR
+        id: pr
         if: steps.update.outputs.update_available == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
-          token: ${{ secrets.HERMES_UPDATE_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           branch: automation/hermes-agent-stable-candidate
           delete-branch: true
           commit-message: "chore: update Hermes Agent stable candidate"
           title: "chore: update Hermes Agent stable candidate"
           body-path: ${{ runner.temp }}/hermes-stable-update.md
+
+      - name: Run CI on the candidate
+        if: steps.pr.outputs.pull-request-head-sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run ci.yml --ref automation/hermes-agent-stable-candidate
 
       - name: Mark incompatible candidate
         if: steps.update.outputs.update_available == 'true' && steps.update.outputs.compatible != 'true'
