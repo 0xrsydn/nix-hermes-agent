@@ -12,22 +12,9 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v13
-      - name: Check formatting (nixfmt)
-        run: find . -name '*.nix' -not -path './_*' | xargs nix run nixpkgs#nixfmt-rfc-style -- --check
-      - name: Lint (statix)
-        run: nix run nixpkgs#statix -- check .
-      - name: Test update impact reporter
-        run: python3 -m unittest tests/test_render_update_report.py
-      - name: Test updater helpers
-        run: bash tests/update-common.sh
-
+  # The same checks nixbot runs on lab-vm (lint and script tests included);
+  # kept as the fallback when nixbot is down.
   check:
-    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

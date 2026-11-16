@@ -49,6 +49,50 @@
             skills-coexistence = import ./tests/skills-coexistence.nix {
               inherit self nixpkgs system;
             };
+
+            # The lint and script tests from the CI workflow's lint job, as
+            # sandboxed checks. Each copies only the files it reads, so
+            # unrelated edits do not rerun it.
+            lint =
+              pkgs.runCommand "hermes-lint"
+                {
+                  nativeBuildInputs = [
+                    pkgs.nixfmt
+                    pkgs.statix
+                  ];
+                  src = lib.fileset.toSource {
+                    root = ./.;
+                    fileset = lib.fileset.fileFilter (file: file.hasExt "nix") ./.;
+                  };
+                }
+                ''
+                  cd "$src"
+                  find . -name '*.nix' -print0 | xargs -0 nixfmt --check
+                  statix check .
+                  touch "$out"
+                '';
+
+            update-scripts =
+              pkgs.runCommand "hermes-update-scripts"
+                {
+                  nativeBuildInputs = [ pkgs.python3 ];
+                  src = lib.fileset.toSource {
+                    root = ./.;
+                    fileset = lib.fileset.unions [
+                      ./scripts
+                      ./tests/test_render_update_report.py
+                      ./tests/update-common.sh
+                    ];
+                  };
+                }
+                ''
+                  cp -r "$src" work
+                  chmod -R u+w work
+                  cd work
+                  python3 -m unittest tests/test_render_update_report.py
+                  bash tests/update-common.sh
+                  touch "$out"
+                '';
           };
 
         # Nightly tracks mutable upstream HEAD. Keep it available for explicit
