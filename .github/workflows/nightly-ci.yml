@@ -3,6 +3,9 @@ name: Nightly Candidate
 on:
   pull_request:
     branches: [main]
+  # The nightly updater dispatches this on its candidate branch, because PRs
+  # opened by GITHUB_TOKEN start no workflows.
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -17,8 +20,8 @@ jobs:
       - name: Detect nightly pin changes
         id: nightly
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- nightly.nix; then
             echo "changed=false" >>"$GITHUB_OUTPUT"

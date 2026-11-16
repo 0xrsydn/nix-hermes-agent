@@ -28,11 +28,10 @@ if [[ "$current_rev" == "$head_sha" ]]; then
   exit 0
 fi
 
-upstream_version=$(
-  gh api -H "Accept: application/vnd.github.raw+json" \
-    "/repos/NousResearch/hermes-agent/contents/pyproject.toml?ref=${head_sha}" |
-    python3 -c 'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["project"]["version"])'
-)
+# HEAD's pyproject.toml says 0.0.0, so name the nightly after the latest release.
+latest_tag=$(gh api /repos/NousResearch/hermes-agent/releases/latest --jq '.tag_name // empty')
+[[ -n "$latest_tag" ]] || die "latest release has no tag"
+upstream_version=$(upstream_version "$latest_tag" "$head_sha") || die "could not determine the nightly base version"
 python3 - "$upstream_version" <<'PY' || die "upstream pyproject contains an invalid version"
 import re, sys
 raise SystemExit(0 if re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", sys.argv[1]) else 1)

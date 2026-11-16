@@ -31,12 +31,13 @@ updater job red, but does not discard the candidate.
 
 ## Repository token
 
-Set the Actions secret `HERMES_UPDATE_TOKEN` to a fine-grained PAT or GitHub App
-token with repository contents and pull-request write access. Pull requests
-created with the default `GITHUB_TOKEN` can start workflow runs, but GitHub puts
-those runs into an approval-required state. The dedicated token lets candidate
-checks start automatically. Scheduled updates fail clearly when this secret is
-absent rather than opening a candidate that waits for manual workflow approval.
+The updaters use the built-in `GITHUB_TOKEN`, so there is no token to expire.
+The repository setting "Allow GitHub Actions to create and approve pull
+requests" must be on. Pull requests opened with `GITHUB_TOKEN` start no
+workflows, so after opening or updating its candidate PR each updater runs
+`gh workflow run` for that PR's check workflow (`ci.yml` for stable,
+`nightly-ci.yml` for nightly) on the candidate branch. nixbot also builds every
+PR's flake checks through its own GitHub App.
 
 Protect `main` with the ordinary `CI / check` status and the
 `Nightly Candidate / check` status. The latter passes without installing Nix

@@ -34,11 +34,7 @@ for _depth in 1 2 3 4 5; do
 done
 [[ "$tag_type" == "commit" && -n "$tag_sha" ]] || die "release tag does not resolve to a commit"
 
-upstream_version=$(
-  gh api -H "Accept: application/vnd.github.raw+json" \
-    "/repos/NousResearch/hermes-agent/contents/pyproject.toml?ref=${tag_sha}" |
-    python3 -c 'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["project"]["version"])'
-)
+upstream_version=$(upstream_version "$release_tag" "$tag_sha") || die "could not determine the release version"
 current_version=$(awk -F'"' '/pinVersion \? "/{print $2; exit}' "$package_file")
 current_rev=$(awk -F'"' '/pinRev \? "/{print $2; exit}' "$package_file")
 [[ -n "$current_version" && -n "$current_rev" ]] || die "could not read current stable pin"
