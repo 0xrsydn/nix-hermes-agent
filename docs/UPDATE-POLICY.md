@@ -36,8 +36,7 @@ The repository setting "Allow GitHub Actions to create and approve pull
 requests" must be on. Pull requests opened with `GITHUB_TOKEN` start no
 workflows, so after opening or updating its candidate PR each updater runs
 `gh workflow run` for that PR's check workflow (`ci.yml` for stable,
-`nightly-ci.yml` for nightly) on the candidate branch. nixbot also builds every
-PR's flake checks through its own GitHub App.
+`nightly-ci.yml` for nightly) on the candidate branch.
 
 Protect `main` with the ordinary `CI / check` status and the
 `Nightly Candidate / check` status. The latter passes without installing Nix

@@ -12,8 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  # The same checks nixbot runs on lab-vm (lint and script tests included);
-  # kept as the fallback when nixbot is down.
+  # Every flake check, lint and script tests included. This is the only CI.
   check:
     runs-on: ubuntu-latest
     steps:

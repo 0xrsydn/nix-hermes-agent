@@ -11,8 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 # GITHUB_TOKEN opens the candidate PR (repository setting: Actions may create
-# pull requests). Its PRs start no workflows, so the job dispatches CI itself;
-# nixbot builds the PR's flake checks either way.
+# pull requests). Its PRs start no workflows, so the job dispatches CI itself.
 permissions:
   actions: write
   contents: write
