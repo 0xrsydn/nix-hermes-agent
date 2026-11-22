@@ -55,6 +55,15 @@ class RenderUpdateReportTest(unittest.TestCase):
             self.assertIn("❌ failed", rendered)
             self.assertIn("Files the lean layer builds on: `hermes_cli/config.py`", rendered)
 
+    def test_reads_config_schema_from_config_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            (source / "hermes_cli").mkdir()
+            (source / "hermes_cli" / "config_defaults.py").write_text(
+                'DEFAULT_CONFIG = {\n    "_config_version": 54,  # schema\n}\n', encoding="utf-8"
+            )
+            self.assertEqual(REPORT.metadata(source)["config_version"], "54")
+
     def test_missing_sources_are_reported_without_crashing(self) -> None:
         args = argparse.Namespace(
             channel="nightly",

@@ -15,6 +15,7 @@ CONTRACT_PATHS = (
     "nix/hermes-agent.nix",
     "nix/python.nix",
     "nix/nixosModules.nix",
+    "nix/moduleCommon.nix",
     "agent/codex_runtime.py",
     "agent/kanban_stop.py",
     "hermes_cli/config.py",
@@ -50,7 +51,11 @@ def metadata(source: Path | None) -> dict[str, object]:
         except (OSError, tomllib.TOMLDecodeError, TypeError, AttributeError):
             pass
 
-    for config_path in (source / "hermes_cli/config.py", source / "hermes_constants.py"):
+    for config_path in (
+        source / "hermes_cli/config_defaults.py",
+        source / "hermes_cli/config.py",
+        source / "hermes_constants.py",
+    ):
         if not config_path.is_file():
             continue
         contents = config_path.read_text(encoding="utf-8", errors="replace")

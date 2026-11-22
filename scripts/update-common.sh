@@ -8,7 +8,7 @@ set_output() {
 }
 
 upstream_source() {
-  nix flake archive --dry-run --json 2>/dev/null | jq -r '.inputs["hermes-agent"].path // empty' || true
+  nix flake archive --json 2>/dev/null | jq -r '.inputs["hermes-agent"].path // empty' || true
 }
 
 publish_summary() {

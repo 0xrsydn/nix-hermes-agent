@@ -70,6 +70,7 @@ in
 finalize (
   hermes-agent.packages.${system}.minimal.override (prev: {
     inherit version git openssh;
+    ffmpeg-headless = ffmpeg;
     defaultDependencyGroups = dependencyGroups;
     pmPackages = prev.pmPackages // {
       inherit ffmpeg;
