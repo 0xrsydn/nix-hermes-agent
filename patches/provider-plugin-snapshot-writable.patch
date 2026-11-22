@@ -1,0 +1,36 @@
+--- a/providers/plugin_reload.py
++++ b/providers/plugin_reload.py
+@@ -27,6 +27,7 @@ import hashlib
+ import logging
+ import os
+ import shutil
++import stat
+ import sys
+ import tempfile
+ import threading
+@@ -141,6 +142,17 @@ def _new_root() -> Path:
+     return root
+ 
+ 
++def _make_owner_writable(tree: Path) -> None:
++    """copytree keeps the source's modes, so a plugin installed read-only (a Nix store path) yields a
++    read-only copy: renaming a directory into a new parent needs write access to it, and cleanup needs it to
++    delete the copy. The snapshot is private, so the owner may always write it."""
++    for root, dirs, files in os.walk(tree):
++        for name in [root, *(os.path.join(root, entry) for entry in dirs + files)]:
++            mode = os.lstat(name).st_mode
++            if not stat.S_ISLNK(mode):
++                os.chmod(name, stat.S_IMODE(mode) | stat.S_IWUSR)
++
++
+ def _snapshot(plugin_dir: Path, module_name: str) -> Path:
+     """A frozen copy of *plugin_dir* for *module_name* (per home, plugin and tree), named like the original
+     (load errors key on it). Copied into a private directory and published by one rename, so a concurrent scan
+@@ -156,6 +168,7 @@ def _snapshot(plugin_dir: Path, module_name: str) -> Path:
+     private = Path(tempfile.mkdtemp(prefix=".copy-", dir=target.parent))
+     try:
+         shutil.copytree(plugin_dir, private / plugin_dir.name, ignore=_SNAPSHOT_IGNORE)
++        _make_owner_writable(private / plugin_dir.name)
+         os.rename(private / plugin_dir.name, target)
+     except OSError:
+         if not target.is_dir():  # another scan publishing the same copy first is fine

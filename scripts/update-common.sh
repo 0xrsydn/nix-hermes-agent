@@ -7,16 +7,8 @@ set_output() {
   fi
 }
 
-extract_sri_hash() {
-  sed -nE 's/.*got:[[:space:]]*(sha256-[A-Za-z0-9+\/=]+).*/\1/p' "$1" | head -1
-}
-
-realize_flake_source() {
-  nix build "$1.src" --no-link --print-out-paths 2>/dev/null | tail -1 || true
-}
-
-current_nix_system() {
-  nix eval --impure --raw --expr builtins.currentSystem
+upstream_source() {
+  nix flake archive --json 2>/dev/null | jq -r '.inputs["hermes-agent"].path // empty' || true
 }
 
 publish_summary() {

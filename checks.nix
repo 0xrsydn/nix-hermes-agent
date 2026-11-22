@@ -1,122 +1,130 @@
-{ pkgs, hermes-agent }:
-
 {
-  # Verify package contents — binaries exist and are executable
-  package-contents = pkgs.runCommand "hermes-package-contents" { } ''
-    set -e
+  pkgs,
+  mkHermesAgent,
+  release,
+  upstreamRev,
+  src,
+}:
+let
+  inherit (pkgs) lib;
 
-    echo "=== Checking binaries ==="
-    test -x ${hermes-agent}/bin/hermes || (echo "FAIL: hermes binary missing"; exit 1)
-    test -x ${hermes-agent}/bin/hermes-agent || (echo "FAIL: hermes-agent binary missing"; exit 1)
-    test -x ${hermes-agent}/bin/hermes-acp || (echo "FAIL: hermes-acp binary missing"; exit 1)
-    echo "PASS: All binaries present"
+  hermes = mkHermesAgent { inherit pkgs; };
+  extended = hermes.override { extraDependencyGroups = [ "exa" ]; };
+  unpatchedVenv =
+    (mkHermesAgent {
+      inherit pkgs;
+      patches = [ ];
+    }).passthru.hermesVenv;
 
-    echo "=== Checking version ==="
-    ${hermes-agent}/bin/hermes --version 2>&1 | grep -q "Hermes Agent" || (echo "FAIL: version check"; exit 1)
-    echo "PASS: Version check"
+  python = pkg: "${pkg.passthru.hermesVenv}/bin/python3";
 
-    echo "=== Checking key Python modules ==="
-    SITE=${hermes-agent}/lib/python3.12/site-packages
-    for mod in agent cli.py gateway cron tools run_agent.py model_tools.py acp_adapter; do
-      if [ ! -e "$SITE/$mod" ] && [ ! -e "$SITE/$mod.py" ]; then
-        echo "FAIL: Missing module $mod"
+  check =
+    name: script:
+    pkgs.runCommand "hermes-${name}" { } ''
+      set -euo pipefail
+      export HOME=$(mktemp -d)
+      ${script}
+      touch "$out"
+    '';
+in
+{
+  release-pin = check "release-pin" ''
+    if [ ${lib.escapeShellArg upstreamRev} != ${lib.escapeShellArg release.rev} ]; then
+      echo "flake.lock pins hermes-agent at ${upstreamRev}, release.nix says ${release.rev}" >&2
+      exit 1
+    fi
+  '';
+
+  cli = check "cli" ''
+    for bin in hermes hermes-agent hermes-acp; do
+      test -x ${hermes}/bin/$bin
+    done
+    ${hermes}/bin/hermes --version | tee version.txt
+    grep -F ${lib.escapeShellArg release.version} version.txt
+    help=$(${hermes}/bin/hermes --help)
+    for command in gateway config cron skills profile plugins; do
+      grep -qw "$command" <<<"$help" || { echo "missing subcommand: $command" >&2; exit 1; }
+    done
+    doctor=$(${hermes}/bin/hermes doctor 2>&1 || true)
+    grep -q Python <<<"$doctor"
+  '';
+
+  patches-live = check "patches-live" ''
+    grep -q build_kanban_stop_nudge ${hermes.passthru.hermesVenv}/lib/python*/site-packages/agent/codex_runtime.py
+    if grep -rqF ${unpatchedVenv} ${hermes}; then
+      echo "the package still references the unpatched venv:" >&2
+      grep -rlF ${unpatchedVenv} ${hermes} >&2
+      exit 1
+    fi
+    grep -qF ${hermes.passthru.hermesVenv} ${hermes}/bin/hermes
+  '';
+
+  provider-plugin-from-store = check "provider-plugin-from-store" ''
+    export HERMES_HOME=$HOME/.hermes
+    mkdir -p "$HERMES_HOME/plugins/model-providers"
+    ln -s ${./tests/fixtures/store-provider} "$HERMES_HOME/plugins/model-providers/store-provider"
+    ${python hermes} -c 'from providers import get_provider_profile; assert get_provider_profile("store-provider"), "a store-path provider plugin did not register"'
+  '';
+
+  dependency-groups = check "dependency-groups" ''
+    ${python hermes} -c 'import telegram, discord, slack_sdk'
+    for module in faster_whisper av elevenlabs edge_tts boto3 modal daytona lark_oapi dingtalk_stream mautrix; do
+      if ${python hermes} -c "import $module" 2>/dev/null; then
+        echo "dropped dependency is importable: $module" >&2
         exit 1
       fi
     done
-    # mini-swe: upstream renamed minisweagent_path.py → mini_swe_runner.py
-    if [ ! -e "$SITE/minisweagent_path.py" ] && [ ! -e "$SITE/mini_swe_runner.py" ]; then
-      echo "FAIL: Missing module minisweagent_path.py or mini_swe_runner.py"
-      exit 1
-    fi
-    echo "PASS: All key modules present"
-
-    echo "=== Checking wrapped PATH includes runtime deps ==="
-    cat ${hermes-agent}/bin/hermes | grep -q "PATH" || (echo "FAIL: hermes not wrapped with PATH"; exit 1)
-    echo "PASS: PATH wrapping"
-
-    echo "=== All checks passed ==="
-    mkdir -p $out
-    echo "ok" > $out/result
   '';
 
-  # Verify hermes CLI subcommands are accessible
-  cli-commands = pkgs.runCommand "hermes-cli-commands" { } ''
-    set -e
-    export HOME=$(mktemp -d)
-
-    echo "=== Checking hermes --help ==="
-    ${hermes-agent}/bin/hermes --help 2>&1 | grep -q "gateway" || (echo "FAIL: gateway subcommand missing"; exit 1)
-    ${hermes-agent}/bin/hermes --help 2>&1 | grep -q "claw" || (echo "FAIL: claw subcommand missing"; exit 1)
-    ${hermes-agent}/bin/hermes --help 2>&1 | grep -q "config" || (echo "FAIL: config subcommand missing"; exit 1)
-    ${hermes-agent}/bin/hermes --help 2>&1 | grep -q "cron" || (echo "FAIL: cron subcommand missing"; exit 1)
-    ${hermes-agent}/bin/hermes --help 2>&1 | grep -q "skills" || (echo "FAIL: skills subcommand missing"; exit 1)
-    ${hermes-agent}/bin/hermes --help 2>&1 | grep -q "acp" || (echo "FAIL: acp subcommand missing"; exit 1)
-    echo "PASS: All subcommands accessible"
-
-    echo "=== Checking hermes config ==="
-    ${hermes-agent}/bin/hermes config 2>&1 | grep -q "Config:" || (echo "FAIL: config output"; exit 1)
-    echo "PASS: Config command"
-
-    echo "=== Checking hermes claw migrate --help ==="
-    ${hermes-agent}/bin/hermes claw migrate --help 2>&1 | grep -q "OpenClaw" || (echo "FAIL: claw migrate"; exit 1)
-    echo "PASS: Claw migrate"
-
-    echo "=== All CLI checks passed ==="
-    mkdir -p $out
-    echo "ok" > $out/result
+  override-keeps-layer = check "override-keeps-layer" ''
+    ${python extended} -c 'import exa_py, telegram'
+    grep -q build_kanban_stop_nudge ${extended.passthru.hermesVenv}/lib/python*/site-packages/agent/codex_runtime.py
+    ${extended}/bin/hermes --version | grep -F ${lib.escapeShellArg release.version}
   '';
 
-  # Verify hermes-agent doesn't crash on import (exit 124 = timeout, not import error)
-  hermes-agent-import = pkgs.runCommand "hermes-agent-import" { } ''
-    set -e
-    export HOME=$(mktemp -d)
-
-    echo "=== Testing hermes-agent starts without import errors ==="
-    # hermes-agent is interactive (fire CLI), so it will hang waiting for input.
-    # Exit 124 (timeout) = OK. Any other exit = import/crash error.
-    timeout 3 ${hermes-agent}/bin/hermes-agent 2>&1 || CODE=$?
-    if [ "''${CODE:-0}" = "124" ]; then
-      echo "PASS: hermes-agent starts (timed out waiting for input, no import errors)"
-    elif [ "''${CODE:-0}" = "0" ]; then
-      echo "PASS: hermes-agent exited cleanly"
-    else
-      echo "FAIL: hermes-agent crashed with exit code $CODE"
-      exit 1
-    fi
-
-    mkdir -p $out
-    echo "ok" > $out/result
+  shared-tools = check "shared-tools" ''
+    grep -qF ${lib.getBin pkgs.ffmpeg-headless}/bin ${hermes}/bin/hermes
+    grep -qF ${lib.getBin pkgs.git}/bin ${hermes}/bin/hermes
   '';
 
-  # Verify doctor runs without crashing
-  doctor = pkgs.runCommand "hermes-doctor" { } ''
-    set -e
-    export HOME=$(mktemp -d)
+  lint =
+    pkgs.runCommand "hermes-lint"
+      {
+        nativeBuildInputs = [
+          pkgs.nixfmt
+          pkgs.statix
+        ];
+        src = lib.fileset.toSource {
+          root = src;
+          fileset = lib.fileset.fileFilter (file: file.hasExt "nix") src;
+        };
+      }
+      ''
+        cd "$src"
+        find . -name '*.nix' -print0 | xargs -0 nixfmt --check
+        statix check .
+        touch "$out"
+      '';
 
-    echo "=== Running hermes doctor ==="
-    output=$(${hermes-agent}/bin/hermes doctor 2>&1 || true)
-    printf '%s\n' "$output"
-    printf '%s\n' "$output" | grep -q "Python" || (echo "FAIL: doctor"; exit 1)
-    echo "PASS: Doctor runs successfully"
-
-    mkdir -p $out
-    echo "ok" > $out/result
-  '';
-
-  # Verify upstream source exposed to the module contains skills trees
-  skills-source-layout = pkgs.runCommand "hermes-skills-source-layout" { } ''
-    set -e
-
-    SRC=${hermes-agent.upstreamSrc}
-
-    echo "=== Checking upstream skills trees ==="
-    test -d "$SRC/skills" || (echo "FAIL: missing skills/ in upstream source"; exit 1)
-    test -d "$SRC/optional-skills" || (echo "FAIL: missing optional-skills/ in upstream source"; exit 1)
-    find "$SRC/skills" -name SKILL.md -print -quit | grep -q . || (echo "FAIL: no bundled SKILL.md found"; exit 1)
-    find "$SRC/optional-skills" -name SKILL.md -print -quit | grep -q . || (echo "FAIL: no optional SKILL.md found"; exit 1)
-    echo "PASS: upstream skills source layout present"
-
-    mkdir -p $out
-    echo "ok" > $out/result
-  '';
+  update-scripts =
+    pkgs.runCommand "hermes-update-scripts"
+      {
+        nativeBuildInputs = [ pkgs.python3 ];
+        src = lib.fileset.toSource {
+          root = src;
+          fileset = lib.fileset.unions [
+            (src + "/scripts")
+            (src + "/tests/test_render_update_report.py")
+            (src + "/tests/update-common.sh")
+          ];
+        };
+      }
+      ''
+        cp -r "$src" work
+        chmod -R u+w work
+        cd work
+        python3 -m unittest tests/test_render_update_report.py
+        bash tests/update-common.sh
+        touch "$out"
+      '';
 }
