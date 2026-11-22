@@ -53,6 +53,7 @@ class RenderUpdateReportTest(unittest.TestCase):
             self.assertIn("changed: `openai` (`openai>=1` → `openai>=2`)", rendered)
             self.assertIn("| Config schema | `3` | `4` |", rendered)
             self.assertIn("❌ failed", rendered)
+            self.assertIn("Files the lean layer builds on: `hermes_cli/config.py`", rendered)
 
     def test_missing_sources_are_reported_without_crashing(self) -> None:
         args = argparse.Namespace(

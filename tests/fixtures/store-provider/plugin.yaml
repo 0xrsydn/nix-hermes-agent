@@ -1,0 +1,4 @@
+name: store-provider
+kind: model-provider
+version: 1.0.0
+description: Test provider installed from a read-only store path

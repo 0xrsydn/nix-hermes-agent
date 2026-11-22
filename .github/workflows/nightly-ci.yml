@@ -1,10 +1,8 @@
-name: Nightly Candidate
+name: Nightly upstream check
 
 on:
-  pull_request:
-    branches: [main]
-  # The nightly updater dispatches this on its candidate branch, because PRs
-  # opened by GITHUB_TOKEN start no workflows.
+  schedule:
+    - cron: "45 5 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -15,21 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Detect nightly pin changes
-        id: nightly
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || 'origin/main' }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: DeterminateSystems/nix-installer-action@v13
+      - name: Build the lean layer against upstream main
         run: |
-          if git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- nightly.nix; then
-            echo "changed=false" >>"$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >>"$GITHUB_OUTPUT"
-          fi
-      - if: steps.nightly.outputs.changed == 'true'
-        uses: DeterminateSystems/nix-installer-action@v13
-      - name: Build nightly compatibility suite
-        if: steps.nightly.outputs.changed == 'true'
-        run: nix build .#legacyPackages.x86_64-linux.nightlyChecks.all --accept-flake-config
+          nix build --keep-going --no-link --accept-flake-config \
+            --override-input hermes-agent github:NousResearch/hermes-agent \
+            .#checks.x86_64-linux.cli \
+            .#checks.x86_64-linux.patches-live \
+            .#checks.x86_64-linux.dependency-groups \
+            .#checks.x86_64-linux.override-keeps-layer \
+            .#checks.x86_64-linux.shared-tools

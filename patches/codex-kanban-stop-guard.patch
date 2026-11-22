@@ -1,0 +1,132 @@
+--- a/agent/codex_runtime.py
++++ b/agent/codex_runtime.py
+@@ -13,7 +13,7 @@
+ import time
+ from contextlib import suppress
+ from types import SimpleNamespace
+-from typing import Any, Callable, Dict, List
++from typing import Any, Callable, Dict, List, Optional
+ 
+ from agent.stream_single_writer import claim_stream_writer, stream_writer_is_current
+ from agent.transports.hermes_tools_mcp_server import HERMES_TOOLS_MCP_SERVER_NAME
+@@ -698,13 +698,21 @@
+ 
+ 
+ def _finish_codex_turn(agent, turn, messages: list[dict[str, Any]], *, original_user_message: Any,
+-                       should_review_memory: bool, final_response: Any) -> dict[str, Any]:
++                       should_review_memory: bool, final_response: Any,
++                       turns: Optional[List[Any]] = None) -> dict[str, Any]:
+     """Post-turn bookkeeping mirroring the chat_completions loop; returns usage fields.
+     ``final_response`` is the reply after ``transform_llm_output``: memory keeps what the user got."""
+-    # run_conversation() already bumped _turns_since_memory / _user_turn_count; only _iters_since_skill is ours.
+-    agent._iters_since_skill = getattr(agent, "_iters_since_skill", 0) + turn.tool_iterations
+-    _record_codex_app_server_compaction(agent, turn)
+-    usage_result = _record_codex_app_server_usage(agent, turn, messages=messages)
++    # A kanban stop nudge can produce more than one app-server turn. Account for
++    # each turn, but run memory and skill finalization only once for the result.
++    completed_turns = turns or [turn]
++    agent._iters_since_skill = (
++        getattr(agent, "_iters_since_skill", 0)
++        + sum(getattr(codex_turn, "tool_iterations", 0) for codex_turn in completed_turns)
++    )
++    usage_result: dict[str, Any] = {}
++    for codex_turn in completed_turns:
++        _record_codex_app_server_compaction(agent, codex_turn)
++        usage_result.update(_record_codex_app_server_usage(agent, codex_turn, messages=messages))
+     # Skill nudge check AFTER iters were incremented (same as chat_completions).
+     should_review_skills = (0 < agent._skill_nudge_interval <= agent._iters_since_skill
+                             and "skill_manage" in agent.valid_tool_names)
+@@ -771,6 +779,58 @@
+             _consume_user_interrupt(agent), messages, api_calls=0, completed=False, error=str(exc),
+             final_response=f"Codex app-server turn failed: {exc}. Fall back to default runtime with `/codex-runtime auto`.",
+         )
++    codex_turns = []
++    while True:
++        codex_turns.append(turn)
++        if turn.interrupted or turn.error is not None or getattr(turn, "should_retire", False):
++            break
++
++        try:
++            from agent.kanban_stop import build_kanban_stop_nudge
++
++            kanban_nudge = build_kanban_stop_nudge(
++                messages=messages,
++                attempts=getattr(agent, "_kanban_stop_nudges", 0),
++                max_attempts=2,
++                task_id=effective_task_id,
++            )
++        except Exception:
++            logger.debug("codex kanban stop-loop check failed", exc_info=True)
++            kanban_nudge = None
++
++        if not kanban_nudge:
++            break
++
++        # Persist the completed turn before the nudge adds a synthetic user row.
++        _persist_projected_messages(agent, turn, messages)
++        agent._kanban_stop_nudges = getattr(agent, "_kanban_stop_nudges", 0) + 1
++        messages.append({
++            "role": "user",
++            "content": kanban_nudge,
++            "_kanban_stop_synthetic": True,
++        })
++        agent._session_messages = messages
++        logger.info(
++            "codex kanban stop-loop nudge issued (attempt %d) task=%s",
++            agent._kanban_stop_nudges,
++            effective_task_id,
++        )
++        try:
++            agent._emit_status(
++                "⚠️ Kanban worker tried to exit without "
++                "kanban_complete/kanban_block — nudging to finish"
++            )
++        except Exception:
++            logger.debug("codex kanban stop-loop status emission failed", exc_info=True)
++        try:
++            turn = agent._codex_session.run_turn(user_input=kanban_nudge)
++        except Exception as exc:
++            logger.exception("codex app-server kanban stop-loop turn failed")
++            turn.error = str(exc)
++            turn.interrupted = True
++            turn.should_retire = True
++            break
++
+     interrupt = _consume_user_interrupt(agent, turn.interrupted)
+     # Wedged client (turn deadline blown, OAuth refresh died, subprocess exited): retire it. Post-tool
+     # silence alone no longer retires — it only logs a warning (#112928).
+@@ -780,14 +840,15 @@
+     reply = _transform_codex_reply(agent, turn, turn_id)
+     # The binding is published only once the transcript it belongs to is durable, and never for a
+     # retired thread (the next agent would only resume into the same wedge).
+-    if _persist_projected_messages(agent, turn, messages) and not getattr(turn, "should_retire", False):
++    persisted = _persist_projected_messages(agent, turn, messages)
++    if persisted and not getattr(turn, "should_retire", False):
+         _store_codex_thread_id(agent, turn.thread_id)
+     usage_result = _finish_codex_turn(
+         agent, turn, messages, original_user_message=original_user_message, should_review_memory=should_review_memory,
+-        final_response=reply["final_response"],
++        final_response=reply["final_response"], turns=codex_turns,
+     )
+     return _turn_result(
+-        interrupt, messages, api_calls=1, completed=not turn.interrupted and turn.error is None, error=turn.error,
++        interrupt, messages, api_calls=len(codex_turns), completed=not turn.interrupted and turn.error is None, error=turn.error,
+         # We flushed the projected rows ourselves (agent_persisted); the gateway must skip its own DB write.
+         agent_persisted=True, codex_thread_id=turn.thread_id, codex_turn_id=turn.turn_id, **reply, **usage_result,
+     )
+--- a/agent/kanban_stop.py
++++ b/agent/kanban_stop.py
+@@ -24,6 +24,13 @@
+     "kanban_block",
+     "kanban_request_review",
+     "kanban_request_changes",
++    # The codex app-server runtime reaches the board through the internal
++    # ``hermes-tools`` MCP server, and the transcript records the prefixed name
++    # (``CodexEventProjector._mcp_tool_call_spec``) — not the bare tool name.
++    "mcp.hermes-tools.kanban_complete",
++    "mcp.hermes-tools.kanban_block",
++    "mcp.hermes-tools.kanban_request_review",
++    "mcp.hermes-tools.kanban_request_changes",
+ })
+ 
+ _DEFAULT_MAX_ATTEMPTS = 2

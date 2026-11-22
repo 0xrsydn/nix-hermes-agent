@@ -5,7 +5,9 @@ set -euo pipefail
 # this script intentionally never mutates main or any remote branch.
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-package_file="$repo_root/package.nix"
+release_file="$repo_root/release.nix"
+flake_file="$repo_root/flake.nix"
+lock_file="$repo_root/flake.lock"
 report=${HERMES_UPDATE_REPORT:-/tmp/hermes-stable-update.md}
 
 # shellcheck source=scripts/update-common.sh
@@ -35,8 +37,8 @@ done
 [[ "$tag_type" == "commit" && -n "$tag_sha" ]] || die "release tag does not resolve to a commit"
 
 upstream_version=$(upstream_version "$release_tag" "$tag_sha") || die "could not determine the release version"
-current_version=$(awk -F'"' '/pinVersion \? "/{print $2; exit}' "$package_file")
-current_rev=$(awk -F'"' '/pinRev \? "/{print $2; exit}' "$package_file")
+current_version=$(sed -nE 's/^[[:space:]]*version = "([^"]+)";/\1/p' "$release_file")
+current_rev=$(sed -nE 's/^[[:space:]]*rev = "([^"]+)";/\1/p' "$release_file")
 [[ -n "$current_version" && -n "$current_rev" ]] || die "could not read current stable pin"
 
 if [[ "$current_rev" == "$tag_sha" ]]; then
@@ -61,41 +63,30 @@ raise SystemExit(0 if version(sys.argv[2]) >= version(sys.argv[1]) else 1)
 PY
 
 set_output update_available true
-before_source=$(realize_flake_source ".#hermes-agent")
-backup=$(mktemp)
+before_source=$(upstream_source)
+backup=$(mktemp -d)
 build_log=$(mktemp)
-cp "$package_file" "$backup"
+cp "$release_file" "$flake_file" "$lock_file" "$backup/"
 candidate_ready=false
 cleanup() {
-  [[ "$candidate_ready" == true ]] || cp "$backup" "$package_file"
-  rm -f "$backup" "$build_log"
+  if [[ "$candidate_ready" != true ]]; then
+    cp "$backup"/release.nix "$backup"/flake.nix "$backup"/flake.lock "$repo_root/"
+  fi
+  rm -rf "$backup" "$build_log"
 }
 trap cleanup EXIT
 
 log "Preparing stable candidate $current_version -> $upstream_version"
-[[ $(grep -c 'pinVersion ? "' "$package_file") == 1 ]] || die "unexpected pinVersion layout"
-[[ $(grep -c 'pinRev ? "' "$package_file") == 1 ]] || die "unexpected pinRev layout"
-[[ $(grep -c 'pinHash ? "' "$package_file") == 1 ]] || die "unexpected pinHash layout"
-perl -0pi -e "s|pinVersion \\? \"[^\"]+\"|pinVersion ? \"${upstream_version}\"|" "$package_file"
-perl -0pi -e "s|pinRev \\? \"[^\"]+\"|pinRev ? \"${tag_sha}\"|" "$package_file"
-perl -0pi -e 's|pinHash \? "[^"]*"|pinHash ? "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="|' "$package_file"
-grep -Fq "pinRev ? \"${tag_sha}\"" "$package_file" || die "failed to update stable revision"
+[[ $(grep -c 'github:NousResearch/hermes-agent/' "$flake_file") == 1 ]] || die "unexpected hermes-agent input layout"
+perl -pi -e "s|github:NousResearch/hermes-agent/[^\"]+|github:NousResearch/hermes-agent/${release_tag}|" "$flake_file"
+printf '{\n  version = "%s";\n  rev = "%s";\n}\n' "$upstream_version" "$tag_sha" >"$release_file"
+nix flake update hermes-agent --accept-flake-config >"$build_log" 2>&1 || { tail -40 "$build_log" >&2; die "could not lock $release_tag"; }
+locked_rev=$(jq -r '.nodes["hermes-agent"].locked.rev' "$lock_file")
+[[ "$locked_rev" == "$tag_sha" ]] || die "$release_tag locked to $locked_rev, expected $tag_sha"
 
-if nix build '.#hermes-agent.src' --no-link --accept-flake-config >"$build_log" 2>&1; then
-  cp "$backup" "$package_file"
-  die "the fake source hash unexpectedly succeeded"
-fi
-source_hash=$(extract_sri_hash "$build_log")
-if [[ -z "$source_hash" ]]; then
-  cp "$backup" "$package_file"
-  tail -80 "$build_log" >&2
-  die "could not extract the candidate source hash"
-fi
-perl -0pi -e "s|pinHash \\? \"[^\"]*\"|pinHash ? \"${source_hash}\"|" "$package_file"
-
-after_source=$(realize_flake_source ".#hermes-agent")
+after_source=$(upstream_source)
 build_status=$(
-  run_validation "$build_log" nix flake check --keep-going --no-write-lock-file --accept-flake-config
+  run_validation "$build_log" nix flake check --keep-going --accept-flake-config
 )
 
 source_args=()

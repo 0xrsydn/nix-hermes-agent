@@ -4,19 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import tomllib
 from pathlib import Path
 
 
 CONTRACT_PATHS = (
-    "hermes_cli",
+    "nix/packages.nix",
+    "nix/hermes-agent.nix",
+    "nix/python.nix",
+    "nix/nixosModules.nix",
+    "agent/codex_runtime.py",
+    "agent/kanban_stop.py",
     "hermes_cli/config.py",
-    "hermes_constants.py",
-    "skills",
-    "optional-skills",
-    "hermes-tui",
-    "mini-swe-agent",
 )
 
 
@@ -28,7 +29,7 @@ def metadata(source: Path | None) -> dict[str, object]:
         "scripts": {},
         "python": "unknown",
         "config_version": "unknown",
-        "paths": set(),
+        "paths": {},
     }
     if source is None or not source.is_dir():
         return result
@@ -61,7 +62,11 @@ def metadata(source: Path | None) -> dict[str, object]:
             result["config_version"] = matches[-1]
             break
 
-    result["paths"] = {path for path in CONTRACT_PATHS if (source / path).exists()}
+    result["paths"] = {
+        path: hashlib.sha256((source / path).read_bytes()).hexdigest()
+        for path in CONTRACT_PATHS
+        if (source / path).is_file()
+    }
     return result
 
 
@@ -78,6 +83,13 @@ def changes(before: set[str], after: set[str]) -> str:
     if removed:
         parts.append("removed: " + ", ".join(f"`{item}`" for item in removed))
     return "; ".join(parts) if parts else "none"
+
+
+def contract_changes(before: dict[str, str], after: dict[str, str]) -> str:
+    changed = sorted(
+        path for path in before.keys() | after.keys() if before.get(path) != after.get(path)
+    )
+    return ", ".join(f"`{path}`" for path in changed) if changed else "none"
 
 
 def dependency_changes(before: dict[str, str], after: dict[str, str]) -> str:
@@ -113,7 +125,7 @@ def render(args: argparse.Namespace) -> str:
         f"- Direct dependencies: {dependency_changes(before['dependency_specs'], after['dependency_specs'])}",
         f"- Optional dependency groups: {changes(before['optional_groups'], after['optional_groups'])}",
         f"- CLI entry points: {changes(set(before['scripts']), set(after['scripts']))}",
-        f"- Package/module asset paths: {changes(before['paths'], after['paths'])}",
+        f"- Files the lean layer builds on: {contract_changes(before['paths'], after['paths'])}",
         "",
     ]
     if args.upstream_url:
