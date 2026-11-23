@@ -24,15 +24,6 @@ let
     else
       "${release.version}+unstable.${builtins.substring 0 7 upstreamRev}";
 
-  patchedTopLevels = lib.unique (
-    lib.concatMap (
-      patch:
-      map (line: lib.head (lib.splitString "/" (lib.removePrefix "+++ b/" line))) (
-        lib.filter (lib.hasPrefix "+++ b/") (lib.splitString "\n" (builtins.readFile patch))
-      )
-    ) patches
-  );
-
   applyPatches =
     pkg:
     let
@@ -40,10 +31,16 @@ let
       patchedVenv = venv.overrideAttrs (old: {
         postInstall = (old.postInstall or "") + ''
           sp=$(echo "$out"/lib/python*/site-packages)
-          for entry in ${lib.escapeShellArgs patchedTopLevels}; do
-            target=$(readlink -f "$sp/$entry")
-            rm -rf "$sp/$entry"
-            cp -r --no-preserve=mode "$target" "$sp/$entry"
+          hermes_sp=$(dirname "$(readlink -f "$sp/hermes_cli")")
+          for entry in "$sp"/*; do
+            [ -L "$entry" ] || continue
+            target=$(readlink -f "$entry")
+            case "$target" in
+              "$hermes_sp"/*) ;;
+              *) continue ;;
+            esac
+            rm "$entry"
+            cp -r --no-preserve=mode "$target" "$entry"
           done
           ${lib.concatMapStrings (patch: ''
             patch -d "$sp" -p1 --forward --no-backup-if-mismatch < ${patch}

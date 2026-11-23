@@ -63,7 +63,24 @@ in
     export HERMES_HOME=$HOME/.hermes
     mkdir -p "$HERMES_HOME/plugins/model-providers"
     ln -s ${./tests/fixtures/store-provider} "$HERMES_HOME/plugins/model-providers/store-provider"
-    ${python hermes} -c 'from providers import get_provider_profile; assert get_provider_profile("store-provider"), "a store-path provider plugin did not register"'
+    ${python hermes} -c '
+    import hermes_cli.main
+    from hermes_cli.auth import resolve_provider
+    assert resolve_provider("store-provider") == "store-provider", "a store-path provider plugin did not register"
+    '
+  '';
+
+  patched-code-loads = check "patched-code-loads" ''
+    ${python hermes} -c '
+    import os, sys
+    import hermes_cli.main, agent.codex_runtime, providers.plugin_reload
+    venv = os.path.realpath(sys.argv[1])
+    for module in (hermes_cli.main, agent.codex_runtime, providers.plugin_reload):
+        path = os.path.realpath(module.__file__)
+        assert path.startswith(venv + "/"), f"{module.__name__} loads from {path}, outside the patched venv"
+    escaped = [p for p in sys.path if os.path.isdir(os.path.join(p, "hermes_cli")) and not os.path.realpath(p).startswith(venv + "/")]
+    assert not escaped, f"sys.path reaches unpatched Hermes code: {escaped}"
+    ' ${hermes.passthru.hermesVenv}
   '';
 
   dependency-groups = check "dependency-groups" ''

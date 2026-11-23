@@ -43,6 +43,13 @@ Each file in `patches/` fixes an upstream bug. When a candidate fails because a
 patch no longer applies, check whether upstream has fixed the bug. If it has,
 delete the patch; otherwise rebase it.
 
+The patches apply to a copy of the Hermes package's top-level modules inside
+the Python environment, not to the package itself. Every module is copied, not
+only the patched ones: `hermes_cli/main.py`, `gateway/run.py` and others put
+the real path of their parent directory first on `sys.path`, so a module left
+as a symlink to the package would load the unpatched code. The
+`patched-code-loads` check guards this.
+
 - `codex-kanban-stop-guard.patch`: the Codex app-server runtime skips the
   conversation loop's kanban stop check, so a worker that ends its turn without
   `kanban_complete` or `kanban_block` is recorded as a protocol violation and
@@ -52,7 +59,8 @@ delete the patch; otherwise rebase it.
   source's modes, so a plugin installed from the read-only Nix store yields a
   read-only copy, the copy cannot be renamed into place, and the provider never
   registers ("Unknown provider"). The patch makes the private copy
-  owner-writable. The `provider-plugin-from-store` check reproduces the bug.
+  owner-writable. The `provider-plugin-from-store` check reproduces the bug
+  through `hermes_cli.main`, as the CLI and gateway load it.
 
 ## Manual validation
 
