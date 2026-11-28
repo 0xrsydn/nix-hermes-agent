@@ -1,4 +1,4 @@
 {
-  version = "0.23.3";
-  rev = "caafe5389ae585ef77387a962aee05b1bcf17029";
+  version = "0.23.5";
+  rev = "a428f5344f777ccafe389c79d5b09384abef1437";
 }

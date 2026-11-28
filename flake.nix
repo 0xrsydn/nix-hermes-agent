@@ -2,7 +2,7 @@
   description = "Lean Nix package and NixOS module for Hermes Agent, built on upstream's own packaging";
 
   inputs = {
-    hermes-agent.url = "github:NousResearch/hermes-agent/v0.23.3";
+    hermes-agent.url = "github:NousResearch/hermes-agent/v0.23.5";
     nixpkgs.follows = "hermes-agent/nixpkgs";
   };
 
